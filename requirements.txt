@@ -11,3 +11,5 @@ google-generativeai>=0.8.0
 python-dotenv
 st-gsheets-connection
 pandas
+sentence-transformers
+cosdata-client

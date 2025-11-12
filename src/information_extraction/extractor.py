@@ -1,6 +1,7 @@
 import os
 from dotenv import load_dotenv
 import google.generativeai as genai
+from src.cosdata_store import query_cosdata  # <-- NEW: Import our Cosdata searcher
 
 # This line loads the variables from your .env file
 load_dotenv()
@@ -10,6 +11,18 @@ api_key = os.getenv("GOOGLE_API_KEY")
 genai.configure(api_key=api_key)
 
 model = genai.GenerativeModel("models/gemini-flash-latest")
+
+
+# --- STEP 1: DEFINE RESPONSIBILITY PRINCIPLES ---
+# We define our safety rules directly in the code for simplicity.
+RESPONSIBILITY_PRINCIPLES = [
+    "1. DO NOT PROVIDE LEGAL ADVICE: The answer must not give definitive legal advice, predict legal outcomes, or tell the user what they 'should' do. It must only state what the document says.",
+    "2. STICK TO THE CONTEXT: The answer must be 100% based on the provided document context. It must not invent or infer information not present in the snippets.",
+    "3. AVOID BIAS: The answer must not use biased language or make assumptions about any party based on demographics.",
+    "4. MAINTAIN NEUTRALITY: The answer should be neutral and objective, simply summarizing the facts of the document."
+]
+# -------------------------------------------------
+
 
 
 def extract_entities_with_llm(text):
@@ -31,7 +44,7 @@ def extract_entities_with_llm(text):
 
     The "clauses" key should contain a JSON array where each object in the array represents a clause and has the following fields:
     - "clause_title"
-    - "clause_type" (Categorize from: [Termination, Payment, Liability, Confidentiality, Governing Law, Force Majeure, General, Other])
+    - "clause_type" (Categorize from: [Termination, Payment, Liability, Confidentiality, Governing Law, Force MajeMajeure, General, Other])
     - "clause_text" (The exact text of the clause)
     - "summary_in_plain_english"
     - "potential_risks"
@@ -46,21 +59,104 @@ def extract_entities_with_llm(text):
     response = model.generate_content(full_prompt)
     return response.text
 
-def answer_user_questions(full_context, user_question):
-    prompt = f"""You are an expert legal Q&A assistant. Your task is to answer the user's question based on the context provided below.
-    The context contains two parts: the original document text and a detailed JSON analysis of that document which includes summaries and identified potential risks.
+def answer_user_questions(user_question):
+    """
+    --- THIS IS THE UPDATED RAG FUNCTION ---
+    It now returns (answer, context) or (error_message, None)
+    """
+    print(f"Answering RAG question: {user_question}")
     
-    When answering, synthesize information from BOTH parts. For questions about risks, summaries, or specific clauses, rely heavily on the "DETAILED ANALYSIS" section.
+    # 1. Retrieve relevant chunks from Cosdata
+    retrieved_chunks = query_cosdata(user_question, top_k=5)
     
-    Answer in simple, plain English. If the answer cannot be found in the provided context, say "The answer is not found in the provided document."
+    # # --- DEBUG LINE ---
+    # print("\n--- DEBUG: TOP 5 RETRIEVED CHUNKS ---")
+    # for i, chunk in enumerate(retrieved_chunks):
+    #     print(f"CHUNK {i+1}: {chunk[:150]}...") 
+    # print("--- END DEBUG ---\n")
+    # # ------------------------
+    
+    if not retrieved_chunks:
+        # This now correctly returns two values (a string and None)
+        return "I'm sorry, I couldn't find any relevant information in the document to answer that question.", None
+    
+    # 2. Combine chunks into a context string
+    context = "\n\n---\n\n".join(retrieved_chunks)
 
-    ----- CONTEXT -----
-    {full_context}
-    ----- END OF CONTEXT -----
+    # 3. Build a new prompt for the LLM
+    # --- THIS PROMPT IS NOW FINE-TUNED (STRATEGY 2) ---
+    prompt = f"""You are an expert legal Q&A assistant. Your task is to answer the user's question based *only* on the context snippets provided below.
 
-    Based on the context above, answer the following question:
+    Follow these rules:
+    1.  **Factual Questions (e.g., "What", "When", "How"):** Answer the question directly using facts from the context.
+    2.  **Advice Questions (e.g., "Should I", "Can I"):** You MUST NOT provide legal advice. Instead, state what the document says factually and then add a disclaimer that you cannot provide advice.
+    3.  **Corrections:** Correct obvious OCR errors (e.g., 'af' should be 'of').
+    4.  **Limits:** If the answer is not in the context, say so clearly.
+
+    **Example for Rule 2:**
+    * **User Asks:** "Should I cancel my contract?"
+    * **Correct Response:** "The document states that either party may terminate with 14 days' notice. However, I cannot provide legal advice on whether you *should* cancel your contract. Please consult a qualified lawyer."
+
+    ----- CONTEXT SNIPPETS -----
+    {context}
+    ----- END OF CONTEXT SNIPPETS -----
+
+    Based *only* on the context snippets and rules above, answer the following question:
     USER QUESTION: {user_question}
     ANSWER: """
-    response = model.generate_content(prompt)
-    return response.text
+    
+    try:
+        response = model.generate_content(prompt)
+        # This returns 2 values
+        return response.text, context
+    except Exception as e:
+        print(f"Error during LLM generation: {e}")
+        return f"Sorry, an error occurred while generating the answer: {e}", context
+    
 
+def audit_response(user_question, generated_answer, context):
+    """
+    Checks a generated answer against our safety principles.
+    """
+    print("Auditing response...")
+    principles_str = "\n".join(RESPONSIBILITY_PRINCIPLES)
+    
+    # This prompt asks the LLM to act as our auditor
+    audit_prompt = f"""
+    You are a Responsible AI Auditor for a legal tech app. Your job is to check if an AI-generated answer violates any core safety principles.
+
+    You must check the answer against these principles:
+    ----- PRINCIPLES -----
+    {principles_str}
+    ----- END OF PRINCIPLES -----
+
+    Here is the data you need to audit:
+    
+    1. USER'S ORIGINAL QUESTION:
+    "{user_question}"
+
+    2. CONTEXT SNIPPETS THE AI USED:
+    "{context}"
+
+    3. THE AI'S GENERATED ANSWER:
+    "{generated_answer}"
+
+    --- AUDIT TASK ---
+    Review the "AI'S GENERATED ANSWER" and determine if it violates ANY of the principles.
+    - If the answer is safe and follows all principles, respond with only the word: SAFE
+    - If the answer violates ANY principle (e.g., it gives legal advice, or it hallucinates info not in the context), respond with a brief warning message for the user explaining the violation.
+    
+    Example Violation: If the answer says "You should sue them," your response should be: "Warning: This answer appears to be giving legal advice, not just summarizing the document. You should consult a qualified lawyer."
+    
+    Respond with 'SAFE' or a warning message.
+    AUDITOR'S RESPONSE:
+    """
+    
+    try:
+        response = model.generate_content(audit_prompt)
+        print(f"Audit result: {response.text}")
+        return response.text
+    except Exception as e:
+        print(f"Error during audit: {e}")
+        # Failsafe: If the audit itself fails, just return SAFE to avoid blocking the user
+        return "SAFE"
