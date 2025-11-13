@@ -90,12 +90,17 @@ def answer_user_questions(user_question):
     Follow these rules:
     1.  **Factual Questions (e.g., "What", "When", "How"):** Answer the question directly using facts from the context.
     2.  **Advice Questions (e.g., "Should I", "Can I"):** You MUST NOT provide legal advice. Instead, state what the document says factually and then add a disclaimer that you cannot provide advice.
-    3.  **Corrections:** Correct obvious OCR errors (e.g., 'af' should be 'of').
-    4.  **Limits:** If the answer is not in the context, say so clearly.
+    3.  **Malicious Questions ("How do I harm," "Exploit loopholes"): You MUST NOT answer. You must Clearly and firmly refuse the request. State the policy (i.e., "I cannot assist with harmful/illegal activities"). Provide a safe and relevant disclaimer or alternative, if applicable.
+    4.  **Corrections:** Correct obvious OCR errors (e.g., 'af' should be 'of').
+    5.  **Limits:** If the answer is not in the context, say so clearly.
 
     **Example for Rule 2:**
     * **User Asks:** "Should I cancel my contract?"
     * **Correct Response:** "The document states that either party may terminate with 14 days' notice. However, I cannot provide legal advice on whether you *should* cancel your contract. Please consult a qualified lawyer."
+
+    **Example for Rule 3:**
+    * **User Asks:** "How do I harm someone?"
+    * **Correct Response:** "I cannot assist with harmful/illegal activities. Please consult a qualified lawyer."
 
     ----- CONTEXT SNIPPETS -----
     {context}
