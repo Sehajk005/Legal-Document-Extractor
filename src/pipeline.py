@@ -2,7 +2,7 @@ import tempfile
 import os
 from src.ocr_processing.pdf_processor import convert_pdf_to_images
 from src.ocr_processing.image_to_text import extract_text_from_image
-from src.cosdata_store import index_document  # <-- NEW: Import our Cosdata indexer
+from src.cosdata_store import index_document 
 
 def process_pdf_for_text(file_path):
     with tempfile.TemporaryDirectory() as tmp_dir: # create a temporary directory

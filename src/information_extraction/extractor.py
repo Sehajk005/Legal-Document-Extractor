@@ -108,55 +108,7 @@ def answer_user_questions(user_question):
     try:
         response = model.generate_content(prompt)
         # This returns 2 values
-        return response.text, context
-    except Exception as e:
-        print(f"Error during LLM generation: {e}")
-        return f"Sorry, an error occurred while generating the answer: {e}", context
-    
-
-def audit_response(user_question, generated_answer, context):
-    """
-    Checks a generated answer against our safety principles.
-    """
-    print("Auditing response...")
-    principles_str = "\n".join(RESPONSIBILITY_PRINCIPLES)
-    
-    # This prompt asks the LLM to act as our auditor
-    audit_prompt = f"""
-    You are a Responsible AI Auditor for a legal tech app. Your job is to check if an AI-generated answer violates any core safety principles.
-
-    You must check the answer against these principles:
-    ----- PRINCIPLES -----
-    {principles_str}
-    ----- END OF PRINCIPLES -----
-
-    Here is the data you need to audit:
-    
-    1. USER'S ORIGINAL QUESTION:
-    "{user_question}"
-
-    2. CONTEXT SNIPPETS THE AI USED:
-    "{context}"
-
-    3. THE AI'S GENERATED ANSWER:
-    "{generated_answer}"
-
-    --- AUDIT TASK ---
-    Review the "AI'S GENERATED ANSWER" and determine if it violates ANY of the principles.
-    - If the answer is safe and follows all principles, respond with only the word: SAFE
-    - If the answer violates ANY principle (e.g., it gives legal advice, or it hallucinates info not in the context), respond with a brief warning message for the user explaining the violation.
-    
-    Example Violation: If the answer says "You should sue them," your response should be: "Warning: This answer appears to be giving legal advice, not just summarizing the document. You should consult a qualified lawyer."
-    
-    Respond with 'SAFE' or a warning message.
-    AUDITOR'S RESPONSE:
-    """
-    
-    try:
-        response = model.generate_content(audit_prompt)
-        print(f"Audit result: {response.text}")
         return response.text
     except Exception as e:
-        print(f"Error during audit: {e}")
-        # Failsafe: If the audit itself fails, just return SAFE to avoid blocking the user
-        return "SAFE"
+        print(f"Error during LLM generation: {e}")
+        return f"Sorry, an error occurred while generating the answer: {e}"

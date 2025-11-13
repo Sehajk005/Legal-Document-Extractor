@@ -7,7 +7,6 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 from src.pipeline import process_pdf_for_text
 from src.information_extraction.extractor import extract_entities_with_llm
 from src.information_extraction.extractor import answer_user_questions
-from src.information_extraction.extractor import audit_response
 import tempfile
 import json
 import re
@@ -151,25 +150,10 @@ if st.session_state.get('analysis_complete'):
     # 1. Display the entire chat history on every rerun
     for index, message in enumerate(st.session_state.message_history):
         with st.chat_message(message["role"]):
+            st.markdown(message["content"])
 
-            if message["role"] == "user":
-                st.markdown(message["content"])
-            else:
-                # --- NEW LOGIC FOR ASSISTANT MESSAGES ---
-                # Check if content is our new dictionary format
-                if isinstance(message["content"], dict):
-                    audit_result = message["content"].get("audit", "SAFE")
-                    response_text = message["content"].get("text", "No response found.")
-
-                    if audit_result.strip().upper() == "SAFE":
-                        st.success("**Responsibility Audit:** Passed. This answer is based on the document's text.")
-                    else:
-                        st.warning(f"**Responsibility Audit:** {audit_result}")
-                    st.markdown(response_text)
-
-                else:
-                    # Fallback for old string-based messages
-                    st.markdown(message["content"])
+            # Add feedback buttons ONLY to assistant messages
+            if message["role"] == "assistant":
                 # Find the user question that corresponds to this answer
                 question_for_feedback = ""
                 if index > 0 and st.session_state.message_history[index - 1]["role"] == "user":
@@ -215,36 +199,13 @@ if st.session_state.get('analysis_complete'):
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 
-                # Audit the response
-                # Get the initial answer AND the context
-                response_text, context = answer_user_questions(prompt)
-                # # Audit the answer
-                
-                audit_result_str = "SAFE" # Default to SAFE
-                
-                # We check for context != None to avoid auditing "I don't know" answers
-                if context: 
-                    audit_result = audit_response(prompt, response_text, context)
-                else:
-                    audit_result = "SAFE"
-                
-                # 3. Display the audit result AND the answer
-                # This logic is now more robust
-                if audit_result_str.strip().upper() == "SAFE":
-                    # Show a success message if it passes
-                    st.success("**Responsibility Audit:** Passed. This answer is based on the document's text.")
-                else:
-                    # Show a warning if it fails or has any other text
-                    st.warning(f"**Responsibility Audit:** {audit_result_str}")
-                
-                st.markdown(response_text) # Display the actual answer
+                # --- THIS IS THE MODIFIED LOGIC ---
+                # We no longer build 'full_context'.
+                # We just call the new RAG-powered function.
+                response = answer_user_questions(prompt)
+                # ----------------------------------
 
-                # Save the FULL package to session state to persist it
-                response_package = {
-                    "audit": audit_result,
-                    "text": response_text
-                }
-                st.session_state.message_history.append({"role": "assistant", "content": response_package})
-                # RERUN! This forces Streamlit to redraw the page
-                # The loop at the top will now find and display the new message
+                # Add assistant response to history
+                st.session_state.message_history.append({"role": "assistant", "content": response})
+                # This will be displayed in the next rerun
                 st.rerun()
