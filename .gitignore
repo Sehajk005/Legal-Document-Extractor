@@ -16,3 +16,8 @@ __pycache__/
 
 # Ignore Streamlit secrets folder
 /.streamlit/
+
+pyproject.toml
+
+/documents\samples/
+

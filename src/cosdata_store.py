@@ -4,7 +4,6 @@ from cosdata import Client
 from sentence_transformers import SentenceTransformer
 
 # --- CONFIG ---
-COLLECTION_NAME = "legal_aid_rag"
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 COSDATA_HOST = "http://127.0.0.1:8443"
 # --------------
@@ -13,22 +12,21 @@ print(f"Loading embedding model: {EMBEDDING_MODEL}...")
 model = SentenceTransformer(EMBEDDING_MODEL)
 client = Client(host=COSDATA_HOST, username="admin", password="admin")
 
-def get_or_create_collection():
+def get_or_create_collection(collection_name):
     """Ensures the collection exists and has an index."""
     
-    
     try:
-        existing = client.get_collection(COLLECTION_NAME)
+        existing = client.get_collection(collection_name)
         if existing:
             return existing
     except Exception:
         pass 
 
-    print(f"Creating new collection: {COLLECTION_NAME}")
+    print(f"Creating new collection: {collection_name}")
     collection = client.create_collection(
-        name=COLLECTION_NAME,
+        name=collection_name,
         dimension=384,
-        description="RAG storage for Legal Aid App"
+        description=f"RAG storage for {collection_name}"
     )
     collection.create_index(distance_metric="cosine")
     return collection
@@ -59,11 +57,11 @@ def smart_chunker(text, chunk_size=800, overlap=100):
     print(f"Generated {len(chunks)} chunks.")
     return chunks
 
-def index_document(full_text, doc_name="uploaded_doc"):
-    collection = get_or_create_collection()
+def index_document(full_text, collection_name, doc_name="uploaded_doc"):
+    collection = get_or_create_collection(collection_name)
     chunks = smart_chunker(full_text)
     
-    print(f"Indexing {len(chunks)} chunks for {doc_name}...")
+    print(f"Indexing {len(chunks)} chunks for {doc_name} into {collection_name}...")
     txn = collection.create_transaction()
     try:
         for i, chunk in enumerate(chunks):
@@ -91,11 +89,11 @@ def index_document(full_text, doc_name="uploaded_doc"):
             
     return len(chunks)
 
-def query_cosdata(user_question, top_k=3):
-    collection = get_or_create_collection()
+def query_cosdata(user_question, collection_name, top_k=3):
+    collection = get_or_create_collection(collection_name)
     query_vec = model.encode(user_question).tolist()
     
-    print(f"Searching for: '{user_question}'...")
+    print(f"Searching '{collection_name}' for: '{user_question}'...")
     # STEP 1: Get the IDs of relevant documents
     search_results = collection.search.dense(
         query_vector=query_vec,
@@ -111,7 +109,6 @@ def query_cosdata(user_question, top_k=3):
             try:
                 full_doc = collection.vectors.get(vec_id)
                 # Try to grab text from our primary or backup slots
-                # Note: Depending on SDK, full_doc might be an object or dict.
                 if isinstance(full_doc, dict):
                      text = full_doc.get('text') or full_doc.get('document_id')
                 else:
@@ -124,3 +121,20 @@ def query_cosdata(user_question, top_k=3):
                 print(f"Failed to fetch document {vec_id}: {e}")
             
     return final_results
+
+# Add this function somewhere in src/cosdata_store.py
+def nuke_and_recreate_collection(collection_name):
+    """
+    Deletes ONLY the user's specific collection.
+    Safe for multi-tenant environments.
+    """
+    try:
+        print(f"NUKE: Attempting to delete {collection_name}...")
+        client.get_collection(collection_name).delete()
+        print(f"NUKE: {collection_name} deleted.")
+        time.sleep(1) # Give the server a second
+    except Exception as e:
+        print(f"NUKE: {collection_name} did not exist (this is OK): {e}")
+
+    # Now, call the original function to create a clean one
+    return get_or_create_collection(collection_name)

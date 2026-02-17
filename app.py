@@ -1,5 +1,6 @@
 import sys
 import os
+import uuid
 
 # Add the project's root directory to the Python path
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
@@ -7,6 +8,7 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 from src.pipeline import process_pdf_for_text
 from src.information_extraction.extractor import extract_entities_with_llm
 from src.information_extraction.extractor import answer_user_questions
+from src.cosdata_store import nuke_and_recreate_collection
 import tempfile
 import json
 import re
@@ -68,16 +70,35 @@ def log_feedback(question, answer, rating, comment=""):
 if 'message_history' not in st.session_state:
     st.session_state.message_history = []
     
+# --- SET UP USER SESSION ---
+if 'session_id' not in st.session_state:
+    # Generate a clean, random ID for this user session
+    # We use hex to avoid special characters that might break DB naming rules
+    st.session_state.session_id = f"user_{uuid.uuid4().hex[:8]}"
+
+# Define the user's unique collection name
+user_collection = f"legal_aid_{st.session_state.session_id}"
+# -------------------------
+    
 st.title("AI Powered Legal Aid For Common Citizens")
 upload_file = st.file_uploader("Upload a PDF", type=['pdf'])
 if upload_file is not None:
     if st.button("Analyze Document", type="primary"):
         with st.spinner("Processing PDF... This may take a few minutes..."):
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tem_file: # create a temporary file
-                tem_file.write(upload_file.getvalue()) # write the uploaded file to the temporary file
-                tem_file_path = tem_file.name # get the temporary file path
-    
-            text = process_pdf_for_text(tem_file_path)
+            
+            # 1. Save the file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tem_file: 
+                tem_file.write(upload_file.getvalue()) 
+                tem_file_path = tem_file.name 
+
+            # 2. Capture the filename (This is our Filter Key)
+            active_doc_name = os.path.basename(tem_file_path)
+            st.session_state.active_doc_name = active_doc_name
+            # Pass the SESSION ID (not the collection name)
+            text = process_pdf_for_text(tem_file_path, st.session_state.session_id)
+
+            # 3. Process (Pass a dummy collection name, we use Global now)
+            text = process_pdf_for_text(tem_file_path, "global")
     
             llm_output = extract_entities_with_llm(text)
             data = {}
@@ -108,44 +129,77 @@ if upload_file is not None:
                 st.session_state.analysis_complete = True
                 
 if st.session_state.get('analysis_complete'):
-    st.subheader("------Analysis Report------\n")
+    st.divider()
+    st.subheader("📝 Document Analysis Report")
     
-    # Add this line back for debugging
-    #st.json(st.session_state.analysis_data)
-    # --- USAGE ---
     report_data = st.session_state.analysis_data
-    
-    # Define lists of possible keys for each piece of data
-    entity_key_aliases = ['extracted_entities', 'entities', 'entity_extraction']
-    clause_key_aliases = ['extracted_clauses', 'clauses', 'clause_analysis']
-    
-    # Use the helper function to find the data, regardless of which key the LLM used
-    entities_data = find_data(report_data, entity_key_aliases)
-    clauses_data = find_data(report_data, clause_key_aliases)
-    # --- END OF USAGE ---
+    entities_data = find_data(report_data, ['extracted_entities', 'entities', 'entity_extraction'])
+    clauses_data = find_data(report_data, ['extracted_clauses', 'clauses', 'clause_analysis'])
 
-    # Now we display the data found by our robust function
-    st.markdown(f"**Individual Names:** {find_data(entities_data, ['individual_names', 'individuals'], [])}")
-    st.markdown(f"**Dates:** {find_data(entities_data, ['dates'], [])}")
-    st.markdown(f"**Addresses:** {find_data(entities_data, ['addresses_locations', 'addresses_or_locations', 'addresses'], [])}")
-    st.markdown(f"**Phone Numbers:** {find_data(entities_data, ['phone_numbers'], [])}")
-    st.markdown(f"**Emails:** {find_data(entities_data, ['emails'], [])}")
-    st.markdown(f"**Company Names:** {find_data(entities_data, ['company_names', 'companies'], [])}")
-    st.markdown(f"**Organization Names:** {find_data(entities_data, ['organization_names', 'organizations'], [])}")
+    # --- HELPER TO REMOVE JSON BRACKETS ---
+    def clean_text(val):
+        if isinstance(val, list):
+            return ", ".join(val)
+        return val if val else "N/A"
+
+    # --- DASHBOARD UI FOR ENTITIES ---
+    # Create two columns for a cleaner layout
+    col1, col2 = st.columns(2)
     
-    st.subheader(f"Found {len(clauses_data)} clauses:")
+    with col1:
+        st.info("🏢 **Parties & Organizations**")
+        comps = find_data(entities_data, ['company_names', 'companies'], [])
+        orgs = find_data(entities_data, ['organization_names', 'organizations'], [])
+        inds = find_data(entities_data, ['individual_names', 'individuals'], [])
+        
+        st.markdown(f"**Companies:** {clean_text(comps)}")
+        st.markdown(f"**Organizations:** {clean_text(orgs)}")
+        st.markdown(f"**Individuals:** {clean_text(inds)}")
+
+    with col2:
+        st.warning("📍 **Dates & Locations**")
+        addrs = find_data(entities_data, ['addresses_locations', 'addresses_or_locations', 'addresses'], [])
+        dates = find_data(entities_data, ['dates'], [])
+        
+        st.markdown(f"**Addresses:** {clean_text(addrs)}")
+        st.markdown(f"**Key Dates:** {clean_text(dates)}")
+
+    # Contact info in an expander to save space
+    with st.expander("📞 View Contact Details"):
+        emails = find_data(entities_data, ['emails'], [])
+        phones = find_data(entities_data, ['phone_numbers'], [])
+        st.markdown(f"**Emails:** {clean_text(emails)}")
+        st.markdown(f"**Phone Numbers:** {clean_text(phones)}")
+    
+    st.divider()
+
+    # --- CLAUSES WITH RED RISKS ---
+    st.subheader(f"📜 Identified Clauses ({len(clauses_data)})")
 
     for clause in clauses_data:
-        with st.expander(f"**{clause.get('clause_title', 'Untitled Clause')}**"):
-            st.markdown(f"""
-            - **Clause Type:** *{clause.get('clause_type', 'N/A')}*
-            - **Summary:** *{clause.get('summary_in_plain_english', 'N/A')}*
-            - **Potential Risks:** *{clause.get('potential_risks', 'N/A')}*
-            """)
-            st.markdown("**Full Clause Text:**")
-            st.write(clause.get('clause_text', 'N/A'))
+        title = clause.get('clause_title', 'Untitled Clause')
+        risks = clause.get('potential_risks', 'N/A')
+        
+        with st.expander(f"**{title}**"):
+            # Use columns inside the expander: Summary Left, Risk Right
+            c1, c2 = st.columns([2, 1])
+            
+            with c1:
+                st.markdown(f"**Type:** `{clause.get('clause_type', 'N/A')}`")
+                st.markdown(f"**Summary:** {clause.get('summary_in_plain_english', 'N/A')}")
+            
+            with c2:
+                st.markdown("🚨 **Potential Risks:**")
+                # THIS MAKES IT RED
+                st.markdown(f":red[{risks}]")
+
+            st.markdown("---")
+            st.caption("**Full Clause Text:**")
+            st.text(clause.get('clause_text', 'N/A'))
     
-    st.header("Ask questions regarding any queries from the document:")
+    st.divider()
+    st.header("💬 AI Legal Assistant")
+    st.caption("Ask questions about the document. The AI analyzes specific clauses to answer.")
 
     # 1. Display the entire chat history on every rerun
     for index, message in enumerate(st.session_state.message_history):
@@ -202,7 +256,8 @@ if st.session_state.get('analysis_complete'):
                 # --- THIS IS THE MODIFIED LOGIC ---
                 # We no longer build 'full_context'.
                 # We just call the new RAG-powered function.
-                response = answer_user_questions(prompt)
+                doc_name = st.session_state.get('active_doc_name', '')
+                response = answer_user_questions(prompt, st.session_state.session_id, doc_name)
                 # ----------------------------------
 
                 # Add assistant response to history

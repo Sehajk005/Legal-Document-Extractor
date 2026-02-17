@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 import google.generativeai as genai
-from src.cosdata_store import query_cosdata  # <-- NEW: Import our Cosdata searcher
+from src.cosdata_store import query_cosdata 
 
 # This line loads the variables from your .env file
 load_dotenv()
@@ -59,7 +59,7 @@ def extract_entities_with_llm(text):
     response = model.generate_content(full_prompt)
     return response.text
 
-def answer_user_questions(user_question):
+def answer_user_questions(user_question, session_id, active_doc_name):
     """
     --- THIS IS THE UPDATED RAG FUNCTION ---
     It now returns (answer, context) or (error_message, None)
@@ -67,7 +67,7 @@ def answer_user_questions(user_question):
     print(f"Answering RAG question: {user_question}")
     
     # 1. Retrieve relevant chunks from Cosdata
-    retrieved_chunks = query_cosdata(user_question, top_k=5)
+    retrieved_chunks = query_cosdata(user_question, session_id, active_doc_name, top_k=5)
     
     # # --- DEBUG LINE ---
     # print("\n--- DEBUG: TOP 5 RETRIEVED CHUNKS ---")
@@ -112,7 +112,6 @@ def answer_user_questions(user_question):
     
     try:
         response = model.generate_content(prompt)
-        # This returns 2 values
         return response.text
     except Exception as e:
         print(f"Error during LLM generation: {e}")
