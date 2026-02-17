@@ -3,7 +3,7 @@ import os
 import fitz  # PyMuPDF
 from src.ocr_processing.pdf_processor import convert_pdf_to_images
 from src.ocr_processing.image_to_text import extract_text_from_image
-from src.cosdata_store import index_document
+# from src.cosdata_store import index_document
 
 MIN_TEXT_LENGTH_FOR_DIGITAL = 100  
 
@@ -50,14 +50,5 @@ def process_pdf_for_text(file_path, session_id):
         # 2. Fallback to slow OCR
         with tempfile.TemporaryDirectory() as tmp_dir:
             full_text = perform_ocr_extraction(file_path, tmp_dir)
-
-    # 3. Index into Cosdata (using Session ID for uniqueness)
-    try:
-        doc_name = os.path.basename(file_path)
-        print(f"Indexing document: {doc_name} for session {session_id}...")
-        index_document(full_text, session_id, doc_name=doc_name)
-        print("Indexing complete.")
-    except Exception as e:
-        print(f"Error during indexing: {e}")
-
+            
     return full_text
