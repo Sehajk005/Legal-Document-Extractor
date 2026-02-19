@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 import google.generativeai as genai
-from src.cosdata_store import query_cosdata 
+
 
 # This line loads the variables from your .env file
 load_dotenv()

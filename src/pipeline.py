@@ -39,7 +39,7 @@ def perform_ocr_extraction(file_path, tmp_dir):
     print("OCR extraction complete.")
     return full_text
 
-def process_pdf_for_text(file_path, session_id):
+def process_pdf_for_text(file_path):
     """
     New pipeline: Hybrid Parsing + Session-aware Indexing.
     """

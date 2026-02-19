@@ -23,11 +23,25 @@ def run_test(name, input_text, expected_outcome):
 
 # 1. THE HAPPY PATH (Should Pass)
 legal_text = """
-CONFIDENTIALITY AGREEMENT
-This Confidentiality Agreement (the "Agreement") is entered into as of January 1, 2024, by and between 
-TechCorp Inc. ("Disclosing Party") and John Doe ("Receiving Party"). 
-WHEREAS, the Disclosing Party possesses certain proprietary information...
-NOW, THEREFORE, in consideration of the mutual covenants contained herein...
+VENDOR SERVICES AGREEMENT 
+This Agreement is made on October 28, 2025 ("Effective Date"). 
+BETWEEN: TechCorp Solutions Pvt. Ltd., a company registered in India, with its primary office at 45-B, Elante Mall, Industrial Area Phase I, chandigafh, 160002 (Hereinafter "Company"). 
+Contact: priya.singh@techcorp.io
+AND: Mr. Rohan Gupta, an independent vendor, residing at House No. 789, Sector 10-C, Chandigarh, 160011 (Hereinafter "Vendor"). 
+Contact Phone: +91-9876543210 
+WHEREAS:The Company requires services for IT support and maintenance. The Vendor, Mr. Rohan Gupta, has expertise in these areas. 
+1. Scope of Work
+The Vendor will provide on-call IT support. All work is authorized by Ms. Priya Singh 
+(priya.singh@techcorp.io). The Vendor's secondary contact is **O5O-123-4567**. 
+2. Payment 
+The Company will pay the Vendor a monthly retainer of INR 2,20,000. All invoices must be 
+sent to **accounts@techcorp.io**. 
+3. Affiliation & Standards
+The Vendor agrees to maintain all certifications required by the **Punjab Tech Association** 
+(Hereinafter "PTA") for the duration of this contract. The Vendor will also participate in the 
+annual audit conducted by the **Chandigarh Legal Society**. 
+4. Term and Termination 
+This agreement shall last for one (1) year, ending October 27, 2026.
 """
 
 # 2. THE RESUME TRAP (Should Fail)
