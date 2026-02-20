@@ -85,7 +85,7 @@ short_text = "This is just a random short sentence that means nothing."
 results = [
     run_test("Standard Contract", legal_text, True),
     run_test("Resume (The Trap)", resume_text, False),
-    run_test("News Article (Context Trap)", news_text, False),
+    run_test("News Article", news_text, True),
     run_test("Invoice (Financial Trap)", invoice_text, False),
     run_test("Short Text", short_text, False)
 ]
