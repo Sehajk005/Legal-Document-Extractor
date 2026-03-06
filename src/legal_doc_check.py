@@ -7,6 +7,7 @@ _judge_model = None
 def get_classifier():
     global _classifier
     if _classifier is None:
+        # Load the zero-shot classification model
         from transformers import pipeline
         _classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
     return _classifier
@@ -14,8 +15,9 @@ def get_classifier():
 def get_judge_model():
     global _judge_model
     if _judge_model is None:
+        # Load the text generation model
         from transformers import pipeline
-        _judge_model = pipeline("text-generation", model="gpt2")
+        _judge_model = pipeline("text2text-generation", model="google/flan-t5-base")
     return _judge_model
 
 negative_patterns = {
@@ -33,13 +35,13 @@ negative_patterns = {
 def is_negative_pattern(text):
     hits={}
     for name, pat in negative_patterns.items():
-        matches = re.findall(pat, text, re.IGNORECASE)
+        matches = len(re.findall(pat, text, re.IGNORECASE))
         if matches: 
             hits[name] = matches
-    total_matches = sum(len(v) for v in hits.values())
-    dominant_hits = max((len(v) for v in hits.values()), default=0)
+    total_matches = sum(hits.values())
+    dominant_hits = max(hits.values(), default=0)
     
-    return hits, total_matches, dominant_hits
+    return total_matches, dominant_hits
 
 def verify_document(input_data):
     if os.path.exists(input_data) and input_data.lower().endswith(".pdf"):
@@ -138,7 +140,8 @@ def verify_document(input_data):
         "a legal textbook, law article, or educational legal blog post",
     ]
     
-    result = get_classifier(
+    classifier = get_classifier()
+    result = classifier(
         text_preview, 
         labels, 
         hypothesis_template="This document is a {}."
@@ -176,27 +179,26 @@ def is_legal_document(input_data):
     elif(0.4 < score < 0.7):
         print(f"--- GRAY ZONE (Score {score:.2f}) - Calling Judge ---")
         prompt = f"""You are a legal document classifier for a legal AI application.
-        ACCEPT the following:
-        - Contracts, agreements, NDAs, leases, deeds, wills, affidavits
-        - Court orders, judgments, legal filings
-        - Legal articles, law review papers, legal blogs
-        - Law textbooks, statutes, regulations, case law summaries
-        - Any document primarily about legal topics, rights, or obligations
+        Classify the document below. Answer only "yes" or "no".
+        Answer "yes" if the document is ONE of these:
+        - A legal contract, service agreement, NDA, or binding agreement between parties
+        - A police complaint, FIR, court summons, judgment, or court order
+        - A legal notice, demand letter, or cease and desist letter
+        - A property deed, sale deed, land registry, or civil record
+        - A legal textbook, law article, or educational content about law
 
-        REJECT the following:
-        - Resumes or CVs (even if the person is a lawyer)
-        - Personal emails or letters
-        - Invoices, receipts, or financial statements
-        - Business memos or meeting minutes
-        - General non-legal articles or marketing content
+        Answer "no" if the document is ONE of these:
+        - A resume, CV, or professional profile listing work experience
+        - An invoice, bill, receipt, or payment request
+        - A news article, blog post, or general informational article
+        - A business email, personal letter, office memo, or meeting minutes
 
-        Does the following document fall under the ACCEPT category?
-        Answer ONLY yes or no.
+        Document: {text[:500]}
+
+        Is this a legal document? Answer yes or no:"""
         
-        **Document**: {text[:500]}
-        Answer:"""
-        
-        response = get_judge_model(prompt)
+        judge_model = get_judge_model()
+        response = judge_model(prompt)
         generated_text = response[0]['generated_text'].lower()
         
         if "yes" in generated_text:

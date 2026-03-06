@@ -57,8 +57,8 @@ EDUCATION
 B.S. Computer Science, University of State
 """
 
-# 3. THE NEWS ARTICLE TRAP (Should Fail)
-# It discusses law, courts, and judges, but it is NOT a contract.
+# 3. THE NEWS ARTICLE TRAP (Should Pass)
+# It discusses law, courts, and judges.
 news_text = """
 SUPREME COURT RULES ON CONTRACT DISPUTE
 In a landmark decision today, the Supreme Court ruled that implied covenants of good faith 
