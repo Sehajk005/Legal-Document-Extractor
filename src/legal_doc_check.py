@@ -1,20 +1,33 @@
 import os
 import re
 from src.pipeline import process_pdf_for_text
-from transformers import pipeline
-classifier = pipeline("zero-shot-classification", model="MoritzLaurer/deberta-v3-large-zeroshot-v2.0")
-judge_model = pipeline("text2text-generation", model="google/flan-t5-base")
+_classifier = None
+_judge_model = None
+
+def get_classifier():
+    global _classifier
+    if _classifier is None:
+        from transformers import pipeline
+        _classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
+    return _classifier
+
+def get_judge_model():
+    global _judge_model
+    if _judge_model is None:
+        from transformers import pipeline
+        _judge_model = pipeline("text-generation", model="gpt2")
+    return _judge_model
 
 negative_patterns = {
-    "resume_cv": r'\b(curriculum vitae|work experience|education background|references available|linkedin\.com|github\.com|years of experience|proficient in|skills summary|objective statement|career objective)\b',
+    "resume_cv": r'\b(curriculum vitae|references available|linkedin\.com/in/|github\.com/|career objective|extracurricular activities|gpa|cgpa|cumulative grade|bachelor of|master of|seeking a position|internship at)\b',
     
-    "personal_email": r'\b(dear\s+\w+|best regards|kind regards|sincerely yours|sent from my iphone|unsubscribe)\b',
+    "personal_email": r'\b(hope this email finds you|just checking in|unsubscribe|view in browser|lol|lmao|promo code|dear friend|miss you|catch up soon|how have you been)\b',
     
-    "invoice_receipt": r'\b(invoice number|bill to|payment due|subtotal|tax amount|receipt number|purchase order)\b',
+    "invoice_receipt": r'\b(ship to|shipping address|cart subtotal|cvv|credit card number|add to cart|checkout|tracking number|invoice no|bill to|payment due|total amount due)\b',
     
-    "business_memo": r'\b(memo to|memorandum to|prepared by|submitted to|action items|meeting minutes|agenda for)\b',
+    "business_memo": r'\b(key performance indicators|kpi|synergy|all hands meeting|quarterly earnings|go-to-market|action items|next steps|as per our discussion|please find attached|best regards|kind regards|cc:|bcc:)\b',
     
-    "general_article": r'\b(trending now|click here|subscribe to|follow us on|share this post|comments section|tags:)\b',
+    "general_article": r"\b(celebrity gossip|you won't believe|clickbait|sponsored post|buy now|limited time offer|leave a reply|read more|subscribe now|share this article|views expressed)\b",
 }
 
 def is_negative_pattern(text):
@@ -23,9 +36,10 @@ def is_negative_pattern(text):
         matches = re.findall(pat, text, re.IGNORECASE)
         if matches: 
             hits[name] = matches
-    negative_score = min(len(hits) * 0.1, 0.3)
+    total_matches = sum(len(v) for v in hits.values())
+    dominant_hits = max((len(v) for v in hits.values()), default=0)
     
-    return negative_score
+    return hits, total_matches, dominant_hits
 
 def verify_document(input_data):
     if os.path.exists(input_data) and input_data.lower().endswith(".pdf"):
@@ -37,6 +51,7 @@ def verify_document(input_data):
     text_preview = full_text[:2000]
     
     strong_signals = [
+        # --- 1. CONTRACTS & AGREEMENTS (Your existing list + refinements) ---
         r"\bhereinafter\b",
         r"\bwitnesseth\b",
         r"in\s+witness\s+whereof",
@@ -53,7 +68,45 @@ def verify_document(input_data):
         r'\bTHIS\s+[A-Z\s]+AGREEMENT\b',   
         r'^AGREEMENT\s*\n',                
         r'AGREEMENT\s+between\s+.+and\s+',
-        r'["\u201c]Agreement["\u201d]\s+means'
+        
+        # --- 2. COURT SUMMONS, FINDINGS & LITIGATION ---
+        r"\b(plaintiff|defendant|petitioner|respondent)\b",
+        r"\b(in\s+the\s+court\s+of|high\s+court|supreme\s+court|district\s+court)\b",
+        r"\b(writ\s+petition|civil\s+appeal|criminal\s+appeal)\b",
+        r"\b(affidavit|deponent|sworn\s+before|notary\s+public)\b",
+        r"\b(cause\s+title|order\s+dated|judgment|decree)\b",
+        r"\bsummons\s+to\b",
+        r"\b(learned\s+counsel|amicus\s+curiae|stare\s+decisis)\b",
+
+        # --- 3. POLICE COMPLAINTS & FIRs ---
+        r"\b(first\s+information\s+report|fir\s+no\.?)\b",
+        r"\b(police\s+station|p\.?s\.?)\b",
+        r"\b(complainant|accused|informant)\b",
+        r"\bunder\s+section\s+\d+[a-z]?\b", # e.g., "under section 420"
+        r"\bu/?s\s+\d+[a-z]?\b",            # shorthand "u/s 420"
+        r"\b(ipc|crpc|penal\s+code)\b",
+
+        # --- 4. LEGAL NOTICES & DISPUTE EMAILS ---
+        r"\b(legal\s+notice|demand\s+letter|cease\s+and\s+desist)\b",
+        r"\bwithout\s+prejudice\b",
+        r"\b(cause\s+of\s+action|institute\s+legal\s+proceedings)\b",
+        r"\bstipulated\s+time\b",
+        r"\b(attorney-client\s+privilege|privileged\s+and\s+confidential)\b",
+        r"\bbreach\s+of\s+trust\b",
+
+        # --- 5. PROPERTY & CIVIL RECORDS ---
+        r"\b(sale\s+deed|title\s+deed|conveyance\s+deed|lease\s+deed)\b",
+        r"\b(encumbrance|stamp\s+duty|registration\s+act)\b",
+        r"\b(schedule\s+of\s+property|bounded\s+on\s+the)\b",
+        r"\b(khasra|khatauni|khatiyan|patta)\b", # Regional land record terms
+        
+        # --- 6. WILLS & FAMILY LEGAL DOCS ---
+        r"\b(last\s+will\s+and\s+testament|testator|testatrix)\b",
+        r"\b(bequeath|probate|executor\s+of)\b",
+        r"\b(of\s+sound\s+mind|legal\s+heirs)\b",
+
+        # --- 7. TEXTBOOKS & ARTICLES ---
+        r"\b(jurisprudence|ratio\s+decidendi|fundamental\s+rights|tort\s+law)\b"
     ]
     
     signal_score = 0
@@ -64,43 +117,52 @@ def verify_document(input_data):
             
     labels = [
         # ACCEPT
-        "a legal contract, agreement, deed, will, or binding legal instrument",
-        "a legal article, case law, statute, regulation, or academic legal writing",
+        "a legal contract, binding agreement, or personal legal document like a will",
+        "a police complaint, FIR, court summons, or judicial court finding",
+        "a legal notice, demand letter, or legal email correspondence",
+        "a property deed, civil record, or land registry document",
+        "a legal textbook, law article, or educational legal blog post",
         
         # REJECT
         "a resume, curriculum vitae, or professional profile",
         "a financial invoice, bill, receipt, or payment document",
         "a news article, blog post, or general informational content",
-        "a business email, personal letter, memo, or meeting minutes",
+        "a business email, personal letter, memo, or meeting minutes, a personal friendly email",
     ]
     
     ACCEPT_LABELS = [
-        "a legal contract, agreement, deed, will, or binding legal instrument",
-        "a legal article, case law, statute, regulation, or academic legal writing",
+        "a legal contract, binding agreement, or personal legal document like a will",
+        "a police complaint, FIR, court summons, or judicial court finding",
+        "a legal notice, demand letter, or legal email correspondence",
+        "a property deed, civil record, or land registry document",
+        "a legal textbook, law article, or educational legal blog post",
     ]
     
-    result = classifier(
+    result = get_classifier(
         text_preview, 
         labels, 
         hypothesis_template="This document is a {}."
     )
     
     top_label = result['labels'][0]
-    top_score = result['scores'][0] * 0.5
+    top_score = result['scores'][0] * 0.6
     
-    negative_score = is_negative_pattern(text_preview)
-    
-    total_score = signal_score + top_score - negative_score
+
+    total_score = signal_score + top_score
     
     # debugging
-    # print(f"[DEBUG] signal={signal_score:.2f} | zsc={top_score:.2f} | neg={negative_score:.2f} | total={total_score:.2f} | label={top_label}")
+    # print(f"[DEBUG] signal={signal_score:.2f} | zsc={top_score:.2f} | total={total_score:.2f} | label={top_label}")
     
-    return total_score, top_label, text_preview, ACCEPT_LABELS
+    return total_score, top_label, full_text, ACCEPT_LABELS
     
     
     
-def is_legal_document(input_data, session_id=None):
+def is_legal_document(input_data):
     score, top_label, text, ACCEPT_LABELS = verify_document(input_data)
+    total_matches, dominant_hits = is_negative_pattern(text)
+    
+    if total_matches >= 4 or dominant_hits >= 3:
+        return False, "Rejected: Too many negative patterns." 
     
     if(score >= 0.6 and top_label not in ACCEPT_LABELS):
         return False, f"Rejected: Identified as {top_label} (Score: {score:.2f})"
@@ -134,7 +196,7 @@ def is_legal_document(input_data, session_id=None):
         **Document**: {text[:500]}
         Answer:"""
         
-        response = judge_model(prompt)
+        response = get_judge_model(prompt)
         generated_text = response[0]['generated_text'].lower()
         
         if "yes" in generated_text:
